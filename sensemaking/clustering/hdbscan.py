@@ -1,0 +1,66 @@
+"""
+HDBSCAN-based clustering over semantic embeddings.
+
+Responsibilities:
+- Build embedding matrix from Post objects
+- Run HDBSCAN
+- Assign cluster labels back to Post objects
+
+No embedding logic.
+No stance logic.
+No windowing logic.
+"""
+
+from typing import List
+import numpy as np
+import hdbscan
+
+from sensemaking.data.schemas import Post
+
+
+class HDBSCANClusterer:
+    def __init__(
+        self,
+        min_cluster_size: int = 15,
+        min_samples: int | None = None,
+        metric: str = "euclidean",
+        cluster_selection_epsilon: float = 0.0,
+    ):
+        self.min_cluster_size = min_cluster_size
+        self.min_samples = min_samples
+        self.metric = metric
+        self.cluster_selection_epsilon = cluster_selection_epsilon
+
+    def _build_matrix(self, posts: List[Post]) -> np.ndarray:
+        embeddings = []
+        for p in posts:
+            if p.embedding is None:
+                raise ValueError("Post missing embedding")
+            embeddings.append(p.embedding)
+        X = np.vstack(embeddings)
+        norms = np.linalg.norm(X, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return X / norms
+
+    def fit_predict(self, posts: List[Post]) -> List[Post]:
+        X = self._build_matrix(posts)
+
+        clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=self.min_cluster_size,
+            min_samples=self.min_samples,
+            metric=self.metric,
+            cluster_selection_epsilon=self.cluster_selection_epsilon,
+        )
+
+        labels = clusterer.fit_predict(X)
+
+        for post, label in zip(posts, labels):
+            if label == -1:
+                post.cluster_id = None
+                post.is_noise = True
+            else:
+                post.cluster_id = int(label)
+                post.is_noise = False
+
+        return posts
+
